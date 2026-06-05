@@ -175,9 +175,6 @@ function RankingSection({
   setIsRevealing,
   rankingType,
 }: RankingSectionProps) {
-  // 賞の名前は常に表示する
-  const isTitleRevealed = true;
-
   // このランキングに存在する全ての順位を取得
   const allRanksInRanking = useMemo(() => {
     const ranks = new Set(rankedTeams.map(t => t.rank));
@@ -254,21 +251,21 @@ function RankingSection({
         </div>
         <div className="leaderboard__controls">
           <button
-            className="reveal-btn reveal-btn--next"
+            className="primary-btn"
             onClick={handleRevealNext}
             disabled={isRevealing}
           >
-            {allRevealed ? 'リセット' : '次の順位を発表'}
+            {allRevealed ? 'リセット' : '次を発表'}
           </button>
           <button
-            className="reveal-btn reveal-btn--three"
+            className="ghost-btn"
             onClick={handleRevealThree}
             disabled={isRevealing || allRevealed}
           >
-            {allRevealed ? 'リセット' : '3チームずつ発表'}
+            3件ずつ
           </button>
           <button
-            className="reveal-btn reveal-btn--all"
+            className="ghost-btn"
             onClick={handleRevealAll}
           >
             {allRevealed ? '全て隠す' : '全て表示'}
@@ -323,12 +320,24 @@ function RankingSection({
             )}
             {rankedTeams.map(team => {
               const revealed = isRankRevealed(team.rank);
+              const medalClass =
+                team.rank === 1 ? 'rank-badge--gold'
+                : team.rank === 2 ? 'rank-badge--silver'
+                : team.rank === 3 ? 'rank-badge--bronze'
+                : '';
+              const rowClass = [
+                team.isTie ? 'is-tie' : '',
+                team.rank === 1 ? 'rank-row--gold'
+                : team.rank === 2 ? 'rank-row--silver'
+                : team.rank === 3 ? 'rank-row--bronze'
+                : '',
+              ].filter(Boolean).join(' ');
               return (
-                <tr key={team.id} className={team.isTie ? 'is-tie' : undefined}>
+                <tr key={team.id} className={rowClass || undefined}>
                   <td>
                     {revealed ? (
                       <>
-                        <span className="rank-badge">{team.rank}</span>
+                        <span className={`rank-badge ${medalClass}`}>{team.rank}</span>
                         {team.isTie && <span className="tie-flag">同率</span>}
                       </>
                     ) : (
@@ -342,23 +351,23 @@ function RankingSection({
                   </td>
                   {rankingType === 'repomaster' && (
                     <>
-                      <td>{revealed ? getDisplayValue(team) : '???'}</td>
-                      <td>{revealed ? currencyFormat(team.finalAmount) : '???'}</td>
-                      <td>{revealed ? formatTime(team) : '???'}</td>
-                      <td>{revealed ? team.hpTotal : '???'}</td>
+                      <td className="ranking-value">{revealed ? getDisplayValue(team) : '???'}</td>
+                      <td className="ranking-value">{revealed ? currencyFormat(team.finalAmount) : '???'}</td>
+                      <td className="ranking-value">{revealed ? formatTime(team) : '???'}</td>
+                      <td className="ranking-value">{revealed ? team.hpTotal : '???'}</td>
                     </>
                   )}
                   {rankingType === 'collection' && (
                     <>
-                      <td>{revealed ? currencyFormat(team.finalAmount) : '???'}</td>
+                      <td className="ranking-value">{revealed ? currencyFormat(team.finalAmount) : '???'}</td>
                     </>
                   )}
                   {rankingType === 'timeattack' && (
                     <>
-                      <td>{revealed ? formatTime(team) : '???'}</td>
+                      <td className="ranking-value">{revealed ? formatTime(team) : '???'}</td>
                     </>
                   )}
-                  <td>{revealed ? `Lv.${team.level}` : '???'}</td>
+                  <td className="ranking-value">{revealed ? `Lv.${team.level}` : '???'}</td>
                 </tr>
               );
             })}
@@ -406,11 +415,11 @@ export default function RankingPage({
   const getActiveTitle = () => {
     switch (activeTab) {
       case 'repomaster':
-        return '🏆 R.E.P.O.マスター賞';
+        return 'R.E.P.O.マスター賞';
       case 'collection':
-        return '💰 資材回収王チーム';
+        return '資材回収王チーム';
       case 'timeattack':
-        return '⚡ タイムアタック賞';
+        return 'タイムアタック賞';
     }
   };
 
@@ -448,19 +457,19 @@ export default function RankingPage({
           className={`ranking-tab ${activeTab === 'repomaster' ? 'ranking-tab--active' : ''}`}
           onClick={() => setActiveTab('repomaster')}
         >
-          🏆 R.E.P.O.マスター賞
+          R.E.P.O.マスター賞
         </button>
         <button
           className={`ranking-tab ${activeTab === 'collection' ? 'ranking-tab--active' : ''}`}
           onClick={() => setActiveTab('collection')}
         >
-          💰 資材回収王チーム
+          資材回収王チーム
         </button>
         <button
           className={`ranking-tab ${activeTab === 'timeattack' ? 'ranking-tab--active' : ''}`}
           onClick={() => setActiveTab('timeattack')}
         >
-          ⚡ タイムアタック賞
+          タイムアタック賞
         </button>
       </div>
 

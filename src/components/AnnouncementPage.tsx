@@ -9,19 +9,17 @@ type AnnouncementPageProps = {
   timeAttackRevealedRanks: Set<number>;
 };
 
-// R.E.P.O.マスター賞のスコア計算
 const calculateRepomasterScore = (team: Team, hpTotal: number): number | null => {
   const amount = typeof team.finalAmount === 'number' ? team.finalAmount : 0;
   const minutes = typeof team.playTime.minutes === 'number' ? team.playTime.minutes : 0;
-  
+
   if (minutes === 0 || amount === 0 || hpTotal === 0) {
     return null;
   }
-  
+
   return (amount / minutes) * hpTotal * team.level;
 };
 
-// タイムアタック賞の計算（レベル5に到達したチームの中で、プレイ時間が短い順）
 const calculateTimeAttackValue = (team: Team): number | null => {
   if (team.level !== 5) return null;
   const minutes = typeof team.playTime.minutes === 'number' ? team.playTime.minutes : null;
@@ -29,7 +27,6 @@ const calculateTimeAttackValue = (team: Team): number | null => {
   return minutes;
 };
 
-// R.E.P.O.マスター賞ランキング計算
 const calculateRepomasterRanking = (teams: Team[]): RankedTeam[] => {
   const enriched = teams.map(team => {
     const hpTotal = getHpTotal(team.members);
@@ -60,7 +57,6 @@ const calculateRepomasterRanking = (teams: Team[]): RankedTeam[] => {
   }, []);
 };
 
-// 資材回収王チームランキング計算
 const calculateCollectionRanking = (teams: Team[]): RankedTeam[] => {
   const enriched = teams.map(team => ({
     team,
@@ -68,12 +64,10 @@ const calculateCollectionRanking = (teams: Team[]): RankedTeam[] => {
     hpTotal: getHpTotal(team.members),
   }));
 
-  // 最終獲得金額が高い順でソート（レベルは関係なし）
   const sorted = [...enriched].sort((a, b) => b.finalAmount - a.finalAmount);
 
   return sorted.reduce<RankedTeam[]>((acc, item, index) => {
     const prev = sorted[index - 1];
-    // 最終獲得金額が同じ場合は同点
     const isTie = prev && prev.finalAmount === item.finalAmount;
     const rank = isTie && prev ? acc[acc.length - 1].rank : index + 1;
     acc.push({
@@ -87,7 +81,6 @@ const calculateCollectionRanking = (teams: Team[]): RankedTeam[] => {
   }, []);
 };
 
-// タイムアタック賞ランキング計算
 const calculateTimeAttackRanking = (teams: Team[]): RankedTeam[] => {
   const enriched = teams.map(team => {
     const timeValue = calculateTimeAttackValue(team);
@@ -95,13 +88,10 @@ const calculateTimeAttackRanking = (teams: Team[]): RankedTeam[] => {
     return { team, timeValue, hpTotal };
   });
 
-  // レベル優先 → 時間が短い順でソート
   const sorted = [...enriched].sort((a, b) => {
-    // まずレベルで比較（高い順）
     if (b.team.level !== a.team.level) {
       return b.team.level - a.team.level;
     }
-    // レベルが同じ場合は時間で比較（短い順）
     const timeA = a.timeValue !== null ? a.timeValue : Infinity;
     const timeB = b.timeValue !== null ? b.timeValue : Infinity;
     return timeA - timeB;
@@ -109,15 +99,15 @@ const calculateTimeAttackRanking = (teams: Team[]): RankedTeam[] => {
 
   const entries: RankedTeam[] = sorted.reduce<RankedTeam[]>((acc, item, index) => {
     const prev = sorted[index - 1];
-    // レベルと時間が同じ場合は同点
-    const isTie = prev && 
+    const isTie =
+      prev &&
       prev.team.level === item.team.level &&
       prev.timeValue === item.timeValue &&
       prev.timeValue !== null &&
       item.timeValue !== null;
-    
+
     const rank = isTie && prev ? acc[acc.length - 1].rank : index + 1;
-    
+
     acc.push({
       ...item.team,
       hpTotal: item.hpTotal,
@@ -131,71 +121,95 @@ const calculateTimeAttackRanking = (teams: Team[]): RankedTeam[] => {
   return entries;
 };
 
-type TopThreeAnnouncementProps = {
-  title: string;
-  topThree: RankedTeam[];
+type AnnouncementType = 'repomaster' | 'collection' | 'timeattack';
+
+const formatStat = (team: RankedTeam, type: AnnouncementType): string => {
+  switch (type) {
+    case 'repomaster': {
+      const score = calculateRepomasterScore(team, team.hpTotal);
+      return score !== null ? `スコア ${Math.floor(score).toLocaleString('ja-JP')}` : '';
+    }
+    case 'collection':
+      return typeof team.finalAmount === 'number'
+        ? `$${team.finalAmount.toLocaleString('en-US')}`
+        : '';
+    case 'timeattack': {
+      const minutes = typeof team.playTime.minutes === 'number' ? team.playTime.minutes : null;
+      return minutes !== null ? `${minutes}分` : '未到達';
+    }
+  }
 };
 
-function TopThreeAnnouncement({ title, topThree }: TopThreeAnnouncementProps) {
-  const firstPlace = topThree.find(team => team.rank === 1);
-  const secondPlace = topThree.find(team => team.rank === 2);
-  const thirdPlace = topThree.find(team => team.rank === 3);
+const RANK_LABELS: Record<1 | 2 | 3, string> = {
+  1: '第一位',
+  2: '第二位',
+  3: '第三位',
+};
+
+type AwardCertificateProps = {
+  rank: 1 | 2 | 3;
+  team?: RankedTeam;
+  type: AnnouncementType;
+  awardTitle: string;
+};
+
+function AwardCertificate({ rank, team, type, awardTitle }: AwardCertificateProps) {
+  const revealed = Boolean(team);
+  const medal = rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze';
 
   return (
-    <div className="award-stage">
-      <video
-        className="award-stage__video"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-      >
-        <source src="/148051_1280x720.mp4" type="video/mp4" />
-        {/* 動画が読み込めない場合のフォールバック画像 */}
-        <img src="/Snapshot(32).jpg" alt="Award Stage" />
-      </video>
-      
-      <div className="award-stage__frame">
-        <h2 className="award-stage__title">{title}</h2>
+    <article className={`award-certificate award-certificate--${medal}`}>
+      <div className="award-certificate__frame">
+        <p className="award-certificate__heading">表彰状</p>
+        <div className="award-certificate__line" aria-hidden="true" />
+        <p className="award-certificate__award">{awardTitle}</p>
+        <p className="award-certificate__rank">{RANK_LABELS[rank]}</p>
+        <p className="award-certificate__name">
+          {revealed ? team!.name || '名称未設定' : '？？？？'}
+        </p>
+        {revealed && (
+          <p className="award-certificate__stat">{formatStat(team!, type)}</p>
+        )}
+        <div className="award-certificate__line" aria-hidden="true" />
+        <p className="award-certificate__footer">謹んで表彰する</p>
       </div>
-      
-      <div className="award-stage__podium">
-        <div className="podium podium--first">
-          <div className="podium__content">
-            <div className="podium__number">1</div>
-            <div className="podium__name">
-              {firstPlace ? (firstPlace.name || '名称未設定') : '???'}
-            </div>
-          </div>
-          {firstPlace && (
-            <div className="podium__crown">👑</div>
-          )}
-        </div>
-        
-        <div className="podium podium--second">
-          <div className="podium__content">
-            <div className="podium__number">2</div>
-            <div className="podium__name">
-              {secondPlace ? (secondPlace.name || '名称未設定') : '???'}
-            </div>
-          </div>
-        </div>
-        
-        <div className="podium podium--third">
-          <div className="podium__content">
-            <div className="podium__number">3</div>
-            <div className="podium__name">
-              {thirdPlace ? (thirdPlace.name || '名称未設定') : '???'}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </article>
   );
 }
 
-type AnnouncementType = 'repomaster' | 'collection' | 'timeattack';
+type TopThreeAnnouncementProps = {
+  title: string;
+  topThree: RankedTeam[];
+  type: AnnouncementType;
+};
+
+function TopThreeAnnouncement({ title, topThree, type }: TopThreeAnnouncementProps) {
+  const first = topThree.find(t => t.rank === 1);
+  const second = topThree.find(t => t.rank === 2);
+  const third = topThree.find(t => t.rank === 3);
+  const hasAnyRevealed = topThree.length > 0;
+
+  return (
+    <section className="announcement-stage">
+      <div className="announcement-stage__header">
+        <p className="announcement-stage__eyebrow">RESULT</p>
+        <h2 className="announcement-stage__title">{title}</h2>
+      </div>
+
+      {!hasAnyRevealed ? (
+        <p className="announcement-stage__empty">
+          ランキング表示ページで順位を発表すると、ここに表彰状が表示されます
+        </p>
+      ) : (
+        <div className="award-certificates">
+          <AwardCertificate rank={2} team={second} type={type} awardTitle={title} />
+          <AwardCertificate rank={1} team={first} type={type} awardTitle={title} />
+          <AwardCertificate rank={3} team={third} type={type} awardTitle={title} />
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function AnnouncementPage({
   teams,
@@ -204,17 +218,15 @@ export default function AnnouncementPage({
   timeAttackRevealedRanks,
 }: AnnouncementPageProps) {
   const [activeTab, setActiveTab] = useState<AnnouncementType>('repomaster');
-  
+
   const repomasterRanking = useMemo(() => calculateRepomasterRanking(teams), [teams]);
   const collectionRanking = useMemo(() => calculateCollectionRanking(teams), [teams]);
   const timeAttackRanking = useMemo(() => calculateTimeAttackRanking(teams), [teams]);
 
-  // 各ランキングの1～3位を取得
   const getTopThree = (ranking: RankedTeam[], revealedRanks: Set<number>) => {
-    const topThree = ranking
+    return ranking
       .filter(team => team.rank <= 3 && revealedRanks.has(team.rank))
       .sort((a, b) => a.rank - b.rank);
-    return topThree;
   };
 
   const repomasterTopThree = getTopThree(repomasterRanking, repomasterRevealedRanks);
@@ -235,11 +247,11 @@ export default function AnnouncementPage({
   const getActiveTitle = () => {
     switch (activeTab) {
       case 'repomaster':
-        return '🏆 R.E.P.O.マスター賞';
+        return 'R.E.P.O.マスター賞';
       case 'collection':
-        return '💰 資材回収王チーム';
+        return '資材回収王チーム';
       case 'timeattack':
-        return '⚡ タイムアタック賞';
+        return 'タイムアタック賞';
     }
   };
 
@@ -250,27 +262,27 @@ export default function AnnouncementPage({
           className={`announcement-tab ${activeTab === 'repomaster' ? 'announcement-tab--active' : ''}`}
           onClick={() => setActiveTab('repomaster')}
         >
-          🏆 R.E.P.O.マスター賞
+          R.E.P.O.マスター賞
         </button>
         <button
           className={`announcement-tab ${activeTab === 'collection' ? 'announcement-tab--active' : ''}`}
           onClick={() => setActiveTab('collection')}
         >
-          💰 資材回収王チーム
+          資材回収王チーム
         </button>
         <button
           className={`announcement-tab ${activeTab === 'timeattack' ? 'announcement-tab--active' : ''}`}
           onClick={() => setActiveTab('timeattack')}
         >
-          ⚡ タイムアタック賞
+          タイムアタック賞
         </button>
       </div>
 
       <TopThreeAnnouncement
         title={getActiveTitle()}
         topThree={getActiveTopThree()}
+        type={activeTab}
       />
     </div>
   );
 }
-

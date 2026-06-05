@@ -4,15 +4,12 @@ import { clearState, loadState, saveState } from './utils/storage';
 import { getHpTotal, getHpTotalDetail } from './utils/teamUtils';
 import {
   loadTemplates,
-  saveTemplate,
   deleteTemplate,
   createTemplateFromTeam,
   createTeamFromTemplate,
-  exportTeamsAsJSON,
-  importTeamsFromJSON,
   TeamTemplate,
 } from './utils/templates';
-import { initFirebase, subscribeToRealtimeUpdates, saveStateToFirebase, isFirebaseAvailable, loadInitialState, isFirebaseConfigValid } from './utils/firebase';
+import { initFirebase, saveStateToFirebase, isFirebaseAvailable, loadInitialState, isFirebaseConfigValid } from './utils/firebase';
 import RankingPage from './components/RankingPage';
 import AnnouncementPage from './components/AnnouncementPage';
 import './App.css';
@@ -63,9 +60,66 @@ const normalizeTeam = (raw?: Partial<Team>): Team => ({
 
 const createTeam = (): Team => normalizeTeam();
 
-const createTestTeams = (): Team[] => {
-  return [];
-};
+const createTestTeams = (): Team[] => [
+  normalizeTeam({
+    name: 'レポロゴα',
+    finalAmount: 12500,
+    playTime: { minutes: 87 },
+    level: 4,
+    members: [
+      { name: 'たろう', hp: 120 },
+      { name: 'じろう', hp: 95 },
+      { name: 'さぶろう', hp: 110 },
+      { name: 'しろう', hp: 80 },
+    ],
+  }),
+  normalizeTeam({
+    name: 'ナイトレポ隊',
+    finalAmount: 9800,
+    playTime: { minutes: 102 },
+    level: 3,
+    members: [
+      { name: 'アキ', hp: 100 },
+      { name: 'ユウ', hp: 85 },
+      { name: 'レン', hp: 0 },
+      { name: 'カイ', hp: 0 },
+    ],
+  }),
+  normalizeTeam({
+    name: '資材ハンターズ',
+    finalAmount: 15200,
+    playTime: { minutes: 95 },
+    level: 5,
+    members: [
+      { name: 'モモ', hp: 130 },
+      { name: 'ソラ', hp: 115 },
+      { name: 'ハル', hp: 105 },
+      { name: 'コト', hp: 90 },
+    ],
+  }),
+  normalizeTeam({
+    name: 'スピードスター',
+    finalAmount: 7600,
+    playTime: { minutes: 68 },
+    level: 5,
+    members: [
+      { name: 'ケン', hp: 70 },
+      { name: 'リク', hp: 65 },
+    ],
+  }),
+  normalizeTeam({
+    name: 'ゆるふわ組',
+    finalAmount: 5400,
+    playTime: { minutes: 120 },
+    level: 2,
+    members: [
+      { name: 'ぱんだ', hp: 50 },
+      { name: 'うさぎ', hp: 45 },
+      { name: 'ねこ', hp: 40 },
+      { name: 'いぬ', hp: 55 },
+    ],
+  }),
+];
 
 const createInitialState = (): AppState => {
   // テストデータを使用（本番では通常のcreateTeam()を使用）
@@ -75,6 +129,15 @@ const createInitialState = (): AppState => {
   };
 };
 
+const hasMeaningfulData = (teams: Team[]) =>
+  teams.some(
+    team =>
+      team.name.trim() !== '' ||
+      team.finalAmount !== '' ||
+      typeof team.playTime.minutes === 'number' ||
+      team.members.some(m => m.name.trim() !== '' || m.hp !== '')
+  );
+
 const hydrateState = (): AppState => {
   const stored = loadState();
   if (!stored) return createInitialState();
@@ -83,6 +146,12 @@ const hydrateState = (): AppState => {
     Array.isArray(stored.teams) && stored.teams.length > 0
       ? stored.teams.map(team => normalizeTeam(team))
       : [createTeam()];
+
+  // テストデータモードで空の保存データしかない場合はサンプルを表示
+  const useTestData = true;
+  if (useTestData && !hasMeaningfulData(safeTeams)) {
+    return createInitialState();
+  }
 
   return {
     teams: safeTeams,
@@ -175,7 +244,6 @@ export default function App() {
   
   // 自分の変更かどうかを追跡（無限ループを防ぐ）
   const isLocalChange = useRef(true);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // 各ランキングごとに独立したstateを管理（結果発表ページでも使用）
   const [repomasterRevealedRanks, setRepomasterRevealedRanks] = useState<Set<number>>(new Set());
@@ -190,6 +258,7 @@ export default function App() {
   // テンプレート管理
   const [templates, setTemplates] = useState<TeamTemplate[]>(() => loadTemplates());
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<string>>(new Set());
 
   // Firebase初期化とリアルタイム同期の設定
   useEffect(() => {
@@ -202,62 +271,18 @@ export default function App() {
       console.warn('Firebase設定が未設定です。環境変数を確認してください。');
     }
 
-    if (available) {
-      // 初期データを読み込む
-      loadInitialState(roomId).then((initialState) => {
-        if (initialState) {
-          console.log('初期データを読み込みました:', initialState);
-          isLocalChange.current = false; // 初期データはリモートから
-          setState(initialState);
-          saveState(initialState);
-        }
-      });
-
-      // リアルタイム更新を購読
-      const unsubscribe = subscribeToRealtimeUpdates((remoteState) => {
-        // リモートからの変更のみ反映（自分の変更は除外）
-        if (!isLocalChange.current) {
-          console.log('リモートからの変更を反映します');
-          setState(remoteState);
-          // ローカルストレージにも保存
-          saveState(remoteState);
-        }
-        isLocalChange.current = false; // フラグをリセット
-      }, roomId);
-
-      unsubscribeRef.current = unsubscribe;
-
-      return () => {
-        unsubscribe();
-      };
-    }
+    // 同期は手動ボタン（相手のデータを取得 / 自分のデータを送信）で行う
   }, [roomId]);
 
-  // ローカルストレージへの保存とFirebaseへの同期
+  // ローカルストレージへの自動保存（Firebaseへの送信は手動ボタン）
   useEffect(() => {
-    // ローカルストレージに保存
     saveState(state);
-
-    // Firebaseが利用可能な場合、同期
-    if (isFirebaseAvailable() && isLocalChange.current) {
-      setSaveStatus('syncing');
-      saveStateToFirebase(state, roomId)
-        .then(() => {
-          setSaveStatus('saved');
-          setTimeout(() => setSaveStatus('idle'), 1500);
-        })
-        .catch(() => {
-          setSaveStatus('idle');
-        });
-    } else {
-      // Firebaseがない場合は通常の保存
-      setSaveStatus('saving');
-      const timer = setTimeout(() => {
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 1500);
-      }, 400);
-      return () => clearTimeout(timer);
-    }
+    setSaveStatus('saving');
+    const timer = setTimeout(() => {
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    }, 400);
+    return () => clearTimeout(timer);
   }, [state, roomId]);
 
   // タイムアタック賞順位マップ（レベル優先 → 時間が短い順）
@@ -355,6 +380,18 @@ export default function App() {
     }));
   };
 
+  const toggleTeamCollapsed = (teamId: string) => {
+    setCollapsedTeamIds(prev => {
+      const next = new Set(prev);
+      if (next.has(teamId)) {
+        next.delete(teamId);
+      } else {
+        next.add(teamId);
+      }
+      return next;
+    });
+  };
+
   const handleRemoveTeam = (teamId: string) => {
     isLocalChange.current = true; // 自分の変更であることをマーク
     setState(prev => ({
@@ -370,31 +407,52 @@ export default function App() {
     setState(createInitialState());
   };
 
-  // 手動でFirebaseから最新データを読み込む
-  const handleManualSync = async () => {
+  // 相手のデータを取得（Firebase → 自分の画面）
+  const handlePullRemote = async () => {
     if (!isFirebaseAvailable()) {
       alert('Firebaseが設定されていません。環境変数を確認してください。');
       return;
     }
+    if (!window.confirm('Firebase上のデータで上書きします。よろしいですか？')) return;
 
     setSaveStatus('syncing');
     try {
       const remoteState = await loadInitialState(roomId);
       if (remoteState) {
-        isLocalChange.current = false; // リモートからの読み込み
+        isLocalChange.current = false;
         setState(remoteState);
         saveState(remoteState);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 1500);
-        console.log('手動同期成功: Firebaseから最新データを取得しました');
       } else {
         setSaveStatus('idle');
         alert('Firebaseにデータがありません。');
       }
     } catch (error) {
-      console.error('手動同期エラー:', error);
+      console.error('データ取得エラー:', error);
       setSaveStatus('idle');
-      alert('同期に失敗しました。コンソールを確認してください。');
+      alert('データの取得に失敗しました。');
+    }
+  };
+
+  // 自分のデータを送信（自分の画面 → Firebase）
+  const handlePushLocal = async () => {
+    if (!isFirebaseAvailable()) {
+      alert('Firebaseが設定されていません。環境変数を確認してください。');
+      return;
+    }
+    if (!window.confirm('自分のデータをFirebaseに送信します。相手のデータは上書きされます。よろしいですか？')) return;
+
+    setSaveStatus('syncing');
+    try {
+      isLocalChange.current = true;
+      await saveStateToFirebase(state, roomId);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    } catch (error) {
+      console.error('データ送信エラー:', error);
+      setSaveStatus('idle');
+      alert('データの送信に失敗しました。');
     }
   };
 
@@ -434,88 +492,6 @@ export default function App() {
     setTemplates(loadTemplates());
   };
 
-  // データをJSONファイルとしてエクスポート
-  const handleExportJSON = () => {
-    try {
-      const jsonString = exportTeamsAsJSON(state.teams);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `teams_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      alert('データをエクスポートしました。');
-    } catch (error) {
-      console.error('エクスポートエラー:', error);
-      alert('エクスポートに失敗しました。');
-    }
-  };
-
-  // JSONファイルからデータをインポート
-  const handleImportJSON = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const jsonString = event.target?.result as string;
-          const importedTeams = importTeamsFromJSON(jsonString);
-          
-          if (!window.confirm(`${importedTeams.length}個のチームをインポートしますか？現在のチームに追加されます。`)) return;
-
-          const createId = () =>
-            (typeof crypto !== 'undefined' && 'randomUUID' in crypto && crypto.randomUUID()) ||
-            Math.random().toString(36).slice(2, 10);
-
-          const newTeams: Team[] = importedTeams.map(importedTeam => {
-            const members: Member[] = importedTeam.members.map(m => ({
-              id: createId(),
-              name: m.name,
-              hp: m.hp,
-            }));
-
-            while (members.length < 4) {
-              members.push({
-                id: createId(),
-                name: '',
-                hp: '',
-              });
-            }
-
-            return {
-              id: createId(),
-              name: importedTeam.name,
-              finalAmount: '',
-              playTime: { minutes: '' },
-              members: members.slice(0, 4),
-              level: 1,
-            };
-          });
-
-          isLocalChange.current = true;
-          setState(prev => ({
-            ...prev,
-            teams: [...prev.teams, ...newTeams],
-          }));
-          alert(`${newTeams.length}個のチームをインポートしました。`);
-        } catch (error) {
-          console.error('インポートエラー:', error);
-          alert(`インポートに失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
-  };
-
   const saveStatusLabel =
     saveStatus === 'saving' ? '自動保存中…' 
     : saveStatus === 'syncing' ? '同期中…'
@@ -525,46 +501,40 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <div>
-          <p className="eyebrow">レポチーム対抗生還レース 管理フォーム</p>
-          <h1>レポチーム対抗生還レース 管理システム</h1>
-          <p className="subtitle">
-            1チームごとの詳細データを入力して、タイムアタック結果をまとめて管理
-          </p>
-        </div>
+        <h1>レポチーム対抗生還レース</h1>
         <div className="header__status">
-          {isFirebaseConnected ? (
-            <span className="status-pill status-pill--syncing" style={{ marginRight: '8px' }}>
-              🔄 リアルタイム同期中
-            </span>
-          ) : isFirebaseConfigValid() ? (
-            <span className="status-pill" style={{ marginRight: '8px', backgroundColor: '#ff9800', color: 'white' }}>
-              ⚠️ Firebase接続エラー
-            </span>
-          ) : (
-            <span className="status-pill" style={{ marginRight: '8px', backgroundColor: '#9e9e9e', color: 'white' }}>
-              📦 ローカルのみ
-            </span>
-          )}
-          <span className={`status-pill status-pill--${saveStatus}`}>{saveStatusLabel}</span>
-          {roomId !== 'default' && (
-            <span className="status-pill" style={{ marginLeft: '8px' }}>
-              ルーム: {roomId}
-            </span>
-          )}
+          <span className="status-text">
+            {isFirebaseConnected
+              ? 'Firebase接続済'
+              : isFirebaseConfigValid()
+                ? 'Firebase接続エラー'
+                : 'ローカルのみ'}
+            {' / '}
+            {saveStatusLabel}
+            {roomId !== 'default' && ` / ルーム: ${roomId}`}
+          </span>
           {isFirebaseAvailable() && (
-            <button 
-              className="ghost-btn" 
-              onClick={handleManualSync}
-              disabled={saveStatus === 'syncing'}
-              style={{ marginLeft: '8px' }}
-              title="Firebaseから最新データを取得"
-            >
-              🔄 同期更新
-            </button>
+            <>
+              <button
+                className="ghost-btn ghost-btn--small"
+                onClick={handlePullRemote}
+                disabled={saveStatus === 'syncing'}
+                title="Firebase上のデータを取得して上書き"
+              >
+                相手のデータを取得
+              </button>
+              <button
+                className="ghost-btn ghost-btn--small"
+                onClick={handlePushLocal}
+                disabled={saveStatus === 'syncing'}
+                title="自分のデータをFirebaseに送信"
+              >
+                自分のデータを送信
+              </button>
+            </>
           )}
-          <button className="ghost-btn" onClick={handleReset} style={{ marginLeft: '8px' }}>
-            全てリセット
+          <button className="ghost-btn ghost-btn--small" onClick={handleReset}>
+            リセット
           </button>
         </div>
       </header>
@@ -591,27 +561,19 @@ export default function App() {
       </nav>
 
       {currentPage === 'input' && (
-        <section className="controls-panel">
-          <div className="controls-panel__item controls-panel__actions">
-            <button className="primary-btn" onClick={handleAddTeam}>
-              + チームを追加
-            </button>
-            <button className="ghost-btn" onClick={() => setShowTemplateModal(true)}>
-              📋 テンプレート
-            </button>
-            <button className="ghost-btn" onClick={handleExportJSON}>
-              💾 エクスポート
-            </button>
-            <button className="ghost-btn" onClick={handleImportJSON}>
-              📥 インポート
-            </button>
-          </div>
+        <section className="toolbar">
+          <button className="primary-btn" onClick={handleAddTeam}>
+            チームを追加
+          </button>
+          <button className="ghost-btn" onClick={() => setShowTemplateModal(true)}>
+            テンプレート
+          </button>
         </section>
       )}
 
       {currentPage === 'input' && (
         <section className="teams-section">
-        {state.teams.map((team, index) => {
+        {state.teams.map(team => {
           const hpTotal = getHpTotal(team.members);
           const repomasterData = repomasterRankMap.get(team.id);
           const repomasterRank = repomasterData?.rank;
@@ -619,21 +581,31 @@ export default function App() {
           const repomasterScore = repomasterData?.score ?? calculateRepomasterScore(team, hpTotal);
           const collectionRank = collectionRankMap.get(team.id);
           const timeAttackRank = timeAttackRankMap.get(team.id);
+          const isCollapsed = collapsedTeamIds.has(team.id);
           
           return (
-            <article key={team.id} className="team-card">
+            <article key={team.id} className={`team-card ${isCollapsed ? 'team-card--collapsed' : ''}`}>
               <header className="team-card__header">
-                <div>
-                  <p className="team-card__eyebrow">チーム {index + 1}</p>
-                  <h2>{team.name || '名称未設定'}</h2>
-                </div>
+                <button
+                  type="button"
+                  className="team-card__toggle"
+                  onClick={() => toggleTeamCollapsed(team.id)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <span className="team-card__chevron" aria-hidden="true">
+                    {isCollapsed ? '▸' : '▾'}
+                  </span>
+                  <span className="team-card__label">
+                    {team.name || '名称未設定'}
+                  </span>
+                </button>
                 <div className="team-card__header-actions">
                   <button 
                     className="ghost-btn ghost-btn--small" 
                     onClick={() => handleSaveAsTemplate(team)}
                     title="テンプレートとして保存"
                   >
-                    💾 保存
+                    保存
                   </button>
                   {state.teams.length > 1 && (
                     <button className="ghost-btn ghost-btn--small" onClick={() => handleRemoveTeam(team.id)}>
@@ -643,6 +615,8 @@ export default function App() {
                 </div>
               </header>
 
+              {!isCollapsed && (
+              <div className="team-card__body">
               <div className="team-card__grid">
                 <label>
                   チーム名
@@ -711,7 +685,7 @@ export default function App() {
                       <p>
                         合計HP：<strong>{hpDetail.total}</strong>
                         {hpDetail.compensation > 0 && (
-                          <span style={{ marginLeft: '8px', fontSize: '14px', color: 'var(--muted)' }}>
+                          <span style={{ marginLeft: '8px', fontSize: '15px', color: 'var(--muted)' }}>
                             （実HP：{hpDetail.actual} + 補正：+{hpDetail.compensation}）
                           </span>
                         )}
@@ -747,6 +721,8 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              </div>
+              )}
             </article>
           );
         })}
@@ -782,111 +758,49 @@ export default function App() {
 
       {/* テンプレート管理モーダル */}
       {showTemplateModal && (
-        <div 
-          className="modal-overlay" 
-          onClick={() => setShowTemplateModal(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <div 
-            className="modal-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: 'var(--panel)',
-              borderRadius: '16px',
-              padding: '32px',
-              maxWidth: '600px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0 }}>テンプレート管理</h2>
-              <button 
-                className="ghost-btn"
-                onClick={() => setShowTemplateModal(false)}
-                style={{ padding: '8px 16px' }}
-              >
-                ✕ 閉じる
+        <div className="modal-overlay" onClick={() => setShowTemplateModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content__header">
+              <h2>テンプレート</h2>
+              <button className="ghost-btn ghost-btn--small" onClick={() => setShowTemplateModal(false)}>
+                閉じる
               </button>
             </div>
 
             {templates.length === 0 ? (
-              <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '32px' }}>
-                保存されたテンプレートがありません。<br />
-                チームカードの「💾 保存」ボタンからテンプレートを保存できます。
+              <p className="hint" style={{ textAlign: 'center', padding: '24px 0' }}>
+                保存されたテンプレートがありません。
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="template-list">
                 {templates.map((template) => (
-                  <div
-                    key={template.id}
-                    style={{
-                      padding: '16px',
-                      border: '1px solid var(--border)',
-                      borderRadius: '12px',
-                      backgroundColor: 'var(--panel-alt)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div key={template.id} className="template-item">
+                    <div className="template-item__header">
                       <div>
-                        <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>{template.name}</h3>
-                        <p style={{ margin: 0, color: 'var(--muted)', fontSize: '14px' }}>
-                          チーム名: {template.teamName || '名称未設定'}
-                        </p>
-                        <p style={{ margin: '4px 0 0 0', color: 'var(--muted)', fontSize: '12px' }}>
-                          メンバー数: {template.members.length}人
+                        <h3>{template.name}</h3>
+                        <p className="template-item__meta">
+                          {template.teamName || '名称未設定'} / メンバー {template.members.length}人
                         </p>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div className="template-item__actions">
                         <button
                           className="ghost-btn ghost-btn--small"
                           onClick={() => handleLoadTemplate(template)}
-                          style={{ padding: '6px 12px' }}
                         >
                           読み込む
                         </button>
                         <button
                           className="ghost-btn ghost-btn--small"
                           onClick={() => handleDeleteTemplate(template.id, template.name)}
-                          style={{ padding: '6px 12px', color: 'var(--error)' }}
                         >
                           削除
                         </button>
                       </div>
                     </div>
                     {template.members.length > 0 && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-                        <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: 'var(--muted)' }}>メンバー:</p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {template.members.map((member, idx) => (
-                            <span
-                              key={idx}
-                              style={{
-                                fontSize: '12px',
-                                padding: '4px 8px',
-                                backgroundColor: 'var(--bg)',
-                                borderRadius: '6px',
-                                border: '1px solid var(--border)',
-                              }}
-                            >
-                              {member.name || '名称未設定'} ({member.hp !== '' ? member.hp : '—'} HP)
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                      <p className="template-item__members">
+                        {template.members.map(m => m.name || '—').join(', ')}
+                      </p>
                     )}
                   </div>
                 ))}
