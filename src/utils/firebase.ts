@@ -2,16 +2,15 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set, off, get, Database } from 'firebase/database';
 import { AppState } from '../types';
 
-// Firebase設定（後で実際の値に置き換えます）
-// これらの値はFirebaseコンソールで取得できます
+// Firebase Web設定（クライアント公開用。保護はDBルールで行う）
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'your-api-key',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'your-project.firebaseapp.com',
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://your-project-default-rtdb.firebaseio.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'your-project-id',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'your-project.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '123456789',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || 'your-app-id',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? 'AIzaSyB2feQ8oMZEqd6gBopb8cdRi2-mE_2Jbt0',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? 'repologo-race-manager.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL ?? 'https://repologo-race-manager-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'repologo-race-manager',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? 'repologo-race-manager.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '48155593760',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? '1:48155593760:web:eb7d132f303fd73e118045',
 };
 
 // Firebase初期化
@@ -128,11 +127,10 @@ export const isFirebaseConfigValid = (): boolean => {
   const config = firebaseConfig;
   return !!(
     config.apiKey &&
-    config.apiKey !== 'your-api-key' &&
+    config.apiKey.startsWith('AIza') &&
     config.databaseURL &&
-    config.databaseURL !== 'https://your-project-default-rtdb.firebaseio.com' &&
-    config.projectId &&
-    config.projectId !== 'your-project-id'
+    config.databaseURL.includes('firebasedatabase.app') &&
+    config.projectId === 'repologo-race-manager'
   );
 };
 
