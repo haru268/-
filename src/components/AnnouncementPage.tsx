@@ -141,9 +141,9 @@ const formatStat = (team: RankedTeam, type: AnnouncementType): string => {
 };
 
 const RANK_LABELS: Record<1 | 2 | 3, string> = {
-  1: '第一位',
-  2: '第二位',
-  3: '第三位',
+  1: '第1位',
+  2: '第2位',
+  3: '第3位',
 };
 
 type AwardCertificateProps = {
